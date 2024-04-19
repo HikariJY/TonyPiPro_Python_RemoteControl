@@ -1,0 +1,1121 @@
+﻿using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Runtime.InteropServices;
+using System;
+using MOL;
+using TMPro;
+
+public class Manipulador : MonoBehaviour
+{
+    const string dllPath = "smClient64.dll";
+    //const string dllPath = @"D:\Respaldos d\RESPALDO\Memorias_2\sharedMemoryClient-master\Src\SMPanel\smClient.dll";
+
+    [DllImport(dllPath)] // For 64 Bits System
+    static extern int openMemory(String name, int type);
+
+
+    [DllImport(dllPath)] // For 64 Bits System
+    static extern void setInt(String memName, int position, int value);
+
+    [DllImport(dllPath)]
+    static extern int getInt(String memName, int position);
+
+    [DllImport(dllPath)]
+    static extern void setFloat(String memName, int position, float value);
+
+    [DllImport(dllPath)]
+    static extern float getFloat(String memName, int position);
+
+    float To;
+    float Time_sample = 0.1f;
+    float start;
+    //****************************************************************************
+    public static float[] q1 = new float[9999];
+    public static float[] q2 = new float[9999];
+    public static float[] q3 = new float[9999];
+    public static float[] q4 = new float[9999];
+
+    public static float[] x = new float[9999];
+    public static float[] y = new float[9999];
+    public static float[] phi = new float[9999];
+
+    public static float[] hx = new float[9999];
+    public static float[] hy = new float[9999];
+    public static float[] hz = new float[9999];
+
+    public static float[] hxd = new float[9999];
+    public static float[] hyd = new float[9999];
+    public static float[] hzd = new float[9999];
+
+    //public float x, y, phi, pi;
+    float u, w, q1p, q2p, q3p, q4p, ts;
+    float l1, l2, l3, l4, a, altura;
+    //public float hx, hy, hz;
+    //float hxd, hyd, hzd;
+    public float errorX, errorY, errorZ;
+    float xp, yp;
+
+    float ue, we, q1pe, q2pe, q3pe;
+    float vrefp_u, vrefp_w, vrefp_q1p, vrefp_q2p, vrefp_q3p;
+
+    float j11, j12, j13, j14, j15, j16, j21, j22, j23, j24, j25, j26, j31, j32, j33, j34, j35, j36;
+
+    float uref_c, wref_c, q1pref_c, q2pref_c, q3pref_c;
+    float uref, wref, q1pref, q2pref, q3pref;
+
+
+    float[,] Dinamica = new float[5, 1];
+    float[,] akasha = new float[10, 1];
+
+    float[,] v = new float[5, 1];
+    float[,] q = new float[5, 1];
+    float[,] vrefp = new float[5, 1];
+    float[,] vref_e = new float[5, 1];
+    float[,] vref = new float[5, 1];
+
+    Comunicacion comunicacion;
+
+
+    /******************************************/
+    public Transform carro, q1T, q2T, q3T, q4T, cuboDeseado, cuboReal;
+    public int m = 0;
+    public int valork;
+    public float pausa;
+    public float corrX, corrZ;
+    public float corrXD, corrYD, corrZD;
+    public float corrXR, corrYR, corrZR;
+    Vector3 startPosition;
+    public Animator ruedas;
+    /******************************************/
+    public TextMeshProUGUI xTxt, yTxt, phiTxt, q1Txt, q2Txt, q3Txt, q4Txt;
+
+    int k;
+    int val;
+
+    void Start()
+    {
+        comunicacion = FindObjectOfType<Comunicacion>();
+        openMemory("Memoria0", 2);
+        openMemory("Memoria1", 2);
+        openMemory("Memoria2", 2);
+
+        xTxt.text = "X = " + 0.ToString("F3") + " m";
+        yTxt.text = "Y = " + 0.ToString("F3") + " m";
+        phiTxt.text = "phi = " + 0.ToString("F3") + " rad";
+        q1Txt.text = "Q1 = " + 0.ToString("F3") + " rad";
+        q2Txt.text = "Q2 = " + 0.ToString("F3") + " rad";
+        q3Txt.text = "Q3 = " + 0.ToString("F3") + " rad";
+        q4Txt.text = "Q4 = " + 0.ToString("F3") + " rad";
+
+
+        //for (int j = 0; j < 20; j++)
+        //{
+        //    setFloat("Memoria0", j, 0);
+        //    setFloat("Memoria1", j, 0);
+        //    setFloat("Memoria2", j, 0);
+        //}
+        //%% POSICIONES INICIALES
+        q1[0] = 0 * (Mathf.PI / 180);      //%%% cero
+        q2[0] = 45 * (Mathf.PI / 180);     //%%% positivo
+        q3[0] = -30 * (Mathf.PI / 180);    //%% negativo
+        q4[0] = -45 * (Mathf.PI / 180);
+        x[0] = 2;   //% posicion inicial en x
+        y[0] = 3;   //% posicion inicial en y
+        phi[0] = -30 * (Mathf.PI / 180);
+
+        //%% VELOCIDADES INICIALES
+        u = 0;
+        w = 0;
+        q1p = 0;
+        q2p = 0;
+        q3p = 0;
+        ts = 0.1f;
+
+        //%% DISTANCIAS DE LOS ESLABONES
+        l1 = 0f;
+        l2 = 0.275f;
+        l3 = 0.275f;
+        l4 = 0.15f;
+        a = 0.175f;
+        altura = 0.375f;
+
+
+        //Cinematica Directa
+        hx[0] = x[0] + a * Mathf.Cos(phi[0]) + l2 * Mathf.Cos(q2[0]) * Mathf.Cos(q1[0] + phi[0]) + l3 * Mathf.Cos(q2[0] + q3[0]) * Mathf.Cos(q1[0] + phi[0]) + l4 * Mathf.Cos(q2[0] + q3[0] + q4[0]) * Mathf.Cos(q1[0] + phi[0]);
+        hy[0] = y[0] + a * Mathf.Sin(phi[0]) + l2 * Mathf.Cos(q2[0]) * Mathf.Sin(q1[0] + phi[0]) + l3 * Mathf.Cos(q2[0] + q3[0]) * Mathf.Sin(q1[0] + phi[0]) + l4 * Mathf.Cos(q2[0] + q3[0] + q4[0]) * Mathf.Sin(q1[0] + phi[0]); ;
+        hz[0] = altura + l1 + l2 * Mathf.Sin(q2[0]) + l3 * Mathf.Sin(q2[0] + q3[0]) + l4 * Mathf.Sin(q2[0] + q3[0] + q4[0]);
+
+
+        startPosition = carro.transform.position;
+        ruedas.StartPlayback();
+
+        corrX = carro.transform.position.x;
+        corrZ = carro.transform.position.z;
+
+        corrXD = cuboDeseado.transform.position.x;
+        corrYD = cuboDeseado.transform.position.y;
+        corrZD = cuboDeseado.transform.position.z;
+
+        corrXR = cuboReal.transform.position.x;
+        corrYR = cuboReal.transform.position.y;
+        corrZR = cuboReal.transform.position.z;
+
+        //*************************************************************************************
+
+        //uref_c = 0.1f;
+        //wref_c = 0.2f;
+        //q1pref_c = 0.3f;
+        //q2pref_c = 0.15f;
+        //q3pref_c = 0.05f;
+        //q4p = 0.2f;
+
+        ////%% BLOQUE DE COMPENSACIÓN DINÁMICA
+        ////%% ERRORES DE VELOCIDAD VREF
+        //ue = u - uref_c;
+        //we = w - wref_c;
+        //q1pe = q1p - q1pref_c;
+        //q2pe = q2p - q2pref_c;
+        //q3pe = q3p - q3pref_c;
+
+        //vref_e = new float[5, 1] { { ue }, { we }, { q1pe }, { q2pe }, { q3pe } };
+
+        ////%% DERIVADAS DE LAS VREF DESEADAS
+        //vrefp_u = 0.2f;
+        //vrefp_w = 0.1f;
+        //vrefp_q1p = 0.2f;
+        //vrefp_q2p = 0.1f;
+        //vrefp_q3p = 0.2f;
+
+        //vrefp = new float[5, 1] { { vrefp_u }, { vrefp_w }, { vrefp_q1p }, { vrefp_q2p }, { vrefp_q3p } };
+        //v = new float[5, 1] { { uref_c }, { wref_c }, { q1pref_c }, { q2pref_c }, { q3pref_c } };
+        //q = new float[5, 1] { { 0 }, { phi }, { q1 }, { q2 }, { q3 } };
+
+        //Dinamica = Compensacion_Dinamica(vrefp, vref_e, v, q, ts);
+
+        //uref = Dinamica[0, 0];
+        //wref = Dinamica[1, 0];
+        //q1pref = Dinamica[2, 0];
+        //q2pref = Dinamica[3, 0];
+        //q3pref = Dinamica[4, 0];
+
+        //print("uref: " + uref + "\n" + "wref: " + wref + "\n" + "q1pref: " + q1pref + "\n" + "q2pref: " + q2pref + "\n" + "q3pref: " + q3pref + "\n");
+
+        ////%% POSICIONES INICIALES
+        //q1 = 0 * (Mathf.PI / 180);      //%%% cero
+        //q2 = 45 * (Mathf.PI / 180);     //%%% positivo
+        //q3 = -30 * (Mathf.PI / 180);    //%% negativo
+        //q4 = -45 * (Mathf.PI / 180);
+        //x = 2;   //% posicion inicial en x
+        //y = 3;   //% posicion inicial en y
+        //phi = -30 * (Mathf.PI / 180);
+        ////%% VELOCIDADES INICIALES
+        //u = 0.1f;
+        //w = 0.15f;
+        //q1p = 0.25f;
+        //q2p = 0.2f;
+        //q3p = 0.3f;
+        //ts = 0.1f;
+
+        ////%% VELOCIDADES CINEMATICAS O VELOCIDADES DESEADAS PARA EL BLOQUE DE COMPENSACIÓN DINÁMICO
+        //uref_c = 0.1f;
+        //wref_c = 0.2f;
+        //q1pref_c = 0.3f;
+        //q2pref_c = 0.15f;
+        //q3pref_c = 0.05f;
+        //q4p = 0.2f;
+
+        ////%% BLOQUE DE COMPENSACIÓN DINÁMICA AKASHA
+        //v = new float[5, 1] { { uref_c }, { wref_c }, { q1pref_c }, { q2pref_c }, { q3pref_c } };
+        //q = new float[5, 1] { { 0 }, { phi }, { q1 }, { q2 }, { q3 } };
+
+        ////%%
+        //uref = 0.1f;
+        //wref = 0.2f;
+        //q1pref = 0.15f;
+        //q2pref = 0.2f;
+        //q3pref = 0.25f;
+        //vref = new float[5, 1] { { uref }, { wref }, { q1pref }, { q2pref }, { q3pref } };
+
+        //akasha = Akasha_Dinamica(vref, v, q, ts);
+        ////% VELOCIDADES DEL ROBOT
+        //u = akasha[0, 0];
+        //w = akasha[1, 0];
+        //q1p = akasha[2, 0];
+        //q2p = akasha[3, 0];
+        //q3p = akasha[4, 0];
+
+        ////% POSICIONES DEL ROBOT
+        //phi = akasha[6, 0];
+        //q1 = akasha[7, 0];
+        //q2 = akasha[8, 0];
+        //q3 = akasha[9, 0];
+
+        //print("u: " + u + "\n" + "w: " + w + "\n" + "q1p: " + q1p + "\n" + "q2p: " + q2p + "\n" + "q3p: " + q3p + "\n" + "phi: " + phi + "\n" + "q1: " + q1 + "\n" + "q2: " + q2 + "\n" + "q3: " + q3 + "\n");
+
+        setFloat("Memoria2", 0, 0);
+    }
+
+    void Update()
+    {
+
+        //setFloat("Memoria2", 0, 1);
+        //To += Time.deltaTime;
+        //if (To >= 0.1f)
+        //{
+        //    Manipulador_Modelo();
+        //    To = 0;
+        //}
+
+        start = getFloat("Memoria2", 0);
+        if (start == 1)
+        {
+            //ruedas.StopPlayback();
+            To += Time.deltaTime;
+            if (To >= 0.08f)
+            {
+                Manipulador_Modelo();
+                Animacion();
+                //Manipulador_Cinematica();
+                k += 1;
+                To = 0;
+            }
+            ruedas.StopPlayback();
+        }
+        else
+        {
+            ruedas.StartPlayback();
+        }
+    }
+
+    public void Animacion()
+    {
+        //cuboDeseado.transform.position = new Vector3(hxd + corrXD, hzd + corrYD, hyd + corrZD);
+        //cuboReal.transform.position = new Vector3(hx + corrXR, hz + corrYR, hy + corrZR);
+
+        //q1T.transform.localEulerAngles = new Vector3(0f, ((-q1 / 1) * Mathf.Rad2Deg) - 180, 0f);
+        //q2T.transform.localEulerAngles = new Vector3(((-q2 / 1) * Mathf.Rad2Deg) + 90, 0f, 0f);
+        //q3T.transform.localEulerAngles = new Vector3(((-q3 / 1) * Mathf.Rad2Deg) + 90, 0f, 90f);
+        //q4T.transform.localEulerAngles = new Vector3(((-q4 / 1) * Mathf.Rad2Deg) - 180, 0f, 0f);
+
+        
+
+        //carro.transform.localPosition = new Vector3(x + corrXR, 0f, y + corrZR);
+        //carro.transform.localEulerAngles = new Vector3(0f, (-phi / 1) * Mathf.Rad2Deg + 90, 0f);
+
+        cuboDeseado.transform.localPosition = new Vector3(hxd[k] + corrXD, hzd[k] + corrYD, hyd[k] + corrZD);
+        cuboReal.transform.localPosition = new Vector3(hx[k] + corrXD, hz[k] + corrYD, hy[k] + corrZD);
+
+        carro.transform.localPosition = new Vector3(x[k] + corrXD, 0f, y[k] + corrZD);
+        carro.transform.localEulerAngles = new Vector3(0f, (-phi[k] / 1) * Mathf.Rad2Deg + 90, 0f);
+
+        q1T.transform.localEulerAngles = new Vector3(0f, ((-q1[k] / 1) * Mathf.Rad2Deg) - 180, 0f);
+        q2T.transform.localEulerAngles = new Vector3(((-q2[k] / 1) * Mathf.Rad2Deg) + 90 + 2.25f, 0f, 0f);
+        q3T.transform.localEulerAngles = new Vector3(((-q3[k] / 1) * Mathf.Rad2Deg) + 90, 0f, 90f);
+        q4T.transform.localEulerAngles = new Vector3(((-q4[k] / 1) * Mathf.Rad2Deg) - 180, 0f, 0f);
+
+        //q1T.transform.localEulerAngles = new Vector3(0f, ((-q1 / 1) * Mathf.Rad2Deg), 0f);
+        //q2T.transform.localEulerAngles = new Vector3(((q2 / 1) * Mathf.Rad2Deg), 0f, 0f);
+        //q3T.transform.localEulerAngles = new Vector3(((q3 / 1) * Mathf.Rad2Deg), 0f, 90f);
+        //q4T.transform.localEulerAngles = new Vector3(((q4 / 1) * Mathf.Rad2Deg), 0f, 0f);
+
+        xTxt.text = "X = " + x[k].ToString("F3") + " m";
+        yTxt.text = "Y = " + y[k].ToString("F3") + " m";
+        phiTxt.text = "phi = " + phi[k].ToString("F3") + " rad";
+        q1Txt.text = "Q1 = " + q1[k].ToString("F3") + " rad";
+        q2Txt.text = "Q2 = " + q2[k].ToString("F3") + " rad";
+        q3Txt.text = "Q3 = " + q3[k].ToString("F3") + " rad";
+        q4Txt.text = "Q4 = " + q4[k].ToString("F3") + " rad";
+    }
+    public void Manipulador_Modelo()
+    {
+        //hxd = getFloat("Memoria2", 8);
+        //hyd = getFloat("Memoria2", 9);
+        //hzd = getFloat("Memoria2", 10);
+        
+        hxd[k] = getFloat("Memoria2", 8);
+        hyd[k] = getFloat("Memoria2", 9);
+        hzd[k] = getFloat("Memoria2", 10);
+
+        //hxd = comunicacion.hxd;
+        //hyd = comunicacion.hyd;
+        //hzd = comunicacion.hzd;      
+
+        // Jacobina
+        //j11 = Mathf.Cos(phi);
+        //j12 = -a * Mathf.Sin(phi) - l2 * Mathf.Cos(q2) * Mathf.Sin(q1 + phi) - l3 * Mathf.Cos(q2 + q3) * Mathf.Sin(q1 + phi) - l4 * Mathf.Sin(q1 + phi) * Mathf.Cos(q2 + q3 + q4);
+        //j13 = -l2 * Mathf.Cos(q2) * Mathf.Sin(q1 + phi) - l3 * Mathf.Cos(q2 + q3) * Mathf.Sin(q1 + phi) - l4 * Mathf.Sin(q1 + phi) * Mathf.Cos(q2 + q3 + q4);
+        //j14 = -l2 * Mathf.Sin(q2) * Mathf.Cos(q1 + phi) - l3 * Mathf.Sin(q2 + q3) * Mathf.Cos(q1 + phi) - l4 * Mathf.Cos(q1 + phi) * Mathf.Sin(q2 + q3 + q4);
+        //j15 = -l3 * Mathf.Sin(q2 + q3) * Mathf.Cos(q1 + phi) - l4 * Mathf.Cos(q1 + phi) * Mathf.Sin(q2 + q3 + q4);
+        //j16 = -l4 * Mathf.Cos(q1 + phi) * Mathf.Sin(q2 + q3 + q4);
+
+
+        //j21 = Mathf.Sin(phi);
+        //j22 = a * Mathf.Cos(phi) + l2 * Mathf.Cos(q2) * Mathf.Cos(q1 + phi) + l3 * Mathf.Cos(q2 + q3) * Mathf.Cos(q1 + phi) + l4 * Mathf.Cos(q1 + phi) * Mathf.Cos(q2 + q3 + q4);
+        //j23 = l2 * Mathf.Cos(q2) * Mathf.Cos(q1 + phi) + l3 * Mathf.Cos(q2 + q3) * Mathf.Cos(q1 + phi) + l4 * Mathf.Cos(q1 + phi) * Mathf.Cos(q2 + q3 + q4);
+        //j24 = -l2 * Mathf.Sin(q2) * Mathf.Sin(q1 + phi) - l3 * Mathf.Sin(q2 + q3) * Mathf.Sin(q1 + phi) - l4 * Mathf.Sin(q1 + phi) * Mathf.Sin(q2 + q3 + q4);
+        //j25 = -l3 * Mathf.Sin(q2 + q3) * Mathf.Sin(q1 + phi) - l4 * Mathf.Sin(q1 + phi) * Mathf.Sin(q2 + q3 + q4);
+        //j26 = -l4 * Mathf.Sin(q1 + phi) * Mathf.Sin(q2 + q3 + q4);
+
+        //j31 = 0f;
+        //j32 = 0f;
+        //j33 = 0f;
+        //j34 = l2 * Mathf.Cos(q2) + l3 * Mathf.Cos(q2 + q3) + l4 * Mathf.Cos(q2 + q3 + q4);
+        //j35 = l3 * Mathf.Cos(q2 + q3) + l4 * Mathf.Cos(q2 + q3 + q4);
+        //j36 = l4 * Mathf.Cos(q2 + q3 + q4);
+
+
+        //float[,] Jacob = new float[3, 6] {  { j11, j12, j13, j14, j15, j16 },
+        //                                    { j21, j22, j23, j24, j25, j26 },
+        //                                    { j31, j32, j33, j34, j35, j36 } };
+
+        //comunicacion.j11 = j11;
+        //comunicacion.j12 = j12;
+        //comunicacion.j13 = j13;
+        //comunicacion.j14 = j14;
+        //comunicacion.j15 = j15;
+        //comunicacion.j16 = j16;
+
+        //comunicacion.j21 = j21;
+        //comunicacion.j22 = j22;
+        //comunicacion.j23 = j23;
+        //comunicacion.j24 = j24;
+        //comunicacion.j25 = j25;
+        //comunicacion.j26 = j26;
+
+        //comunicacion.j31 = j31;
+        //comunicacion.j32 = j32;
+        //comunicacion.j33 = j33;
+        //comunicacion.j34 = j34;
+        //comunicacion.j35 = j35;
+        //comunicacion.j36 = j36;
+
+        //setFloat("Memoria0", 4, j11);
+        //setFloat("Memoria0", 5, j12);
+        //setFloat("Memoria0", 6, j13);
+        //setFloat("Memoria0", 7, j14);
+        //setFloat("Memoria0", 8, j15);
+        //setFloat("Memoria0", 9, j16);
+
+        //setFloat("Memoria0", 10, j21);
+        //setFloat("Memoria0", 11, j22);
+        //setFloat("Memoria0", 12, j23);
+        //setFloat("Memoria0", 13, j24);
+        //setFloat("Memoria0", 14, j25);
+        //setFloat("Memoria0", 15, j26);
+
+        //setFloat("Memoria0", 16, j31);
+        //setFloat("Memoria0", 17, j32);
+        //setFloat("Memoria0", 18, j33);
+        //setFloat("Memoria0", 19, j34);
+        //setFloat("Memoria0", 20, j35);
+        //setFloat("Memoria0", 21, j36);
+
+        //%% LEY DE CONTROL SEGUIMIENTO DE TRAYECTORIA
+        //%% VELOCIDADES CINEMATICAS O VELOCIDADES DESEADAS PARA EL BLOQUE DE COMPENSACIÓN DINÁMICO
+
+        uref_c = getFloat("Memoria2", 1);
+        wref_c = getFloat("Memoria2", 2);
+        q1pref_c = getFloat("Memoria2", 3);
+        q2pref_c = getFloat("Memoria2", 4);
+        q3pref_c = getFloat("Memoria2", 5);
+        q4p = getFloat("Memoria2", 6);
+
+        //uref_c = comunicacion.qpref1;
+        //wref_c = comunicacion.qpref2;
+        //q1pref_c = comunicacion.qpref3;
+        //q2pref_c = comunicacion.qpref4;
+        //q3pref_c = comunicacion.qpref5;
+        //q4p = comunicacion.qpref6;
+
+
+        //%% ERRORES DE VELOCIDAD VREF
+        ue = u - uref_c;
+        we = w - wref_c;
+        q1pe = q1p - q1pref_c;
+        q2pe = q2p - q2pref_c;
+        q3pe = q3p - q3pref_c;
+
+        //comunicacion.ue = ue;
+        //comunicacion.we = we;
+        //comunicacion.q1pe = q1pe;
+        //comunicacion.q2pe = q2pe;
+        //comunicacion.q3pe = q3pe;
+
+        vref_e = new float[5, 1] { { ue }, { we }, { q1pe }, { q2pe }, { q3pe } };
+
+        //%% DERIVADAS DE LAS VREF DESEADAS
+        vrefp_u = 0 / ts;
+        vrefp_w = 0 / ts;
+        vrefp_q1p = 0 / ts;
+        vrefp_q2p = 0 / ts;
+        vrefp_q3p = 0 / ts;
+
+        vrefp = new float[5, 1] { { vrefp_u }, { vrefp_w }, { vrefp_q1p }, { vrefp_q2p }, { vrefp_q3p } };
+
+        //%% BLOQUE DE COMPENSACIÓN DINÁMICA
+        v = new float[5, 1] { { uref_c }, { wref_c }, { q1pref_c }, { q2pref_c }, { q3pref_c } };
+        q = new float[5, 1] { { 0 }, { phi[k] }, { q1[k] }, { q2[k] }, { q3[k] } };
+
+        Dinamica = Compensacion_Dinamica(vrefp, vref_e, v, q, ts);
+
+        //%% VELOCIDADES NUEVAS DE PLATAFOMRA Y BRAZO
+        uref = Dinamica[0, 0];
+        wref = Dinamica[1, 0];
+        q1pref = Dinamica[2, 0];
+        q2pref = Dinamica[3, 0];
+        q3pref = Dinamica[4, 0];
+
+        //print("uref: " + uref + "\n" + "wref: " + wref + "\n" + "q1pref: " + q1pref + "\n" + "q2pref: " + q2pref + "\n" + "q3pref: " + q3pref + "\n");
+        vref = new float[5, 1] { { uref }, { wref }, { q1pref }, { q2pref }, { q3pref } };
+
+        //%% MODELO DEL ROBOT AKASHA
+        akasha = Akasha_Dinamica(vref, v, q, ts);
+        //% VELOCIDADES DEL ROBOT
+        u = akasha[0, 0];
+        w = akasha[1, 0];
+        q1p = akasha[2, 0];
+        q2p = akasha[3, 0];
+        q3p = akasha[4, 0];
+
+        //comunicacion.u = u;
+        //comunicacion.we = w;
+        //comunicacion.q1p = q1p;
+        //comunicacion.q2p = q2p;
+        //comunicacion.q3p = q3p;
+        //comunicacion.q4p = q4p;
+
+        //% POSICIONES DEL ROBOT
+        phi[k + 1] = akasha[6, 0];
+        q1[k + 1] = akasha[7, 0];
+        q2[k + 1] = akasha[8, 0];
+        q3[k + 1] = akasha[9, 0];
+
+        q4[k + 1] = ts * q4p + q4[k];
+
+        //%% PLATAFORMA
+        xp = u * Mathf.Cos(phi[k + 1]) - a * w * Mathf.Sin(phi[k + 1]);
+        yp = u * Mathf.Sin(phi[k + 1]) + a * w * Mathf.Cos(phi[k + 1]);
+
+        x[k + 1] = ts * xp + x[k];
+        y[k + 1] = ts * yp + y[k];
+
+        //%% CINEMATICA DIRECTA
+        //hx = x + l2 * Mathf.Cos(q2) * Mathf.Cos(q1 + phi) + l3 * Mathf.Cos(q2 + q3) * Mathf.Cos(q1 + phi) + l4 * Mathf.Cos(q2 + q3 + q4) * Mathf.Cos(q1 + phi);
+        //hy = y + l2 * Mathf.Cos(q2) * Mathf.Sin(q1 + phi) + l3 * Mathf.Cos(q2 + q3) * Mathf.Sin(q1 + phi) + l4 * Mathf.Cos(q2 + q3 + q4) * Mathf.Sin(q1 + phi);
+        //hz = altura + l1 + l2 * Mathf.Sin(q2) + l3 * Mathf.Sin(q2 + q3) + l4 * Mathf.Sin(q2 + q3 + q4);
+
+        hx[k + 1] = x[k + 1] + l2 * Mathf.Cos(q2[k + 1]) * Mathf.Cos(q1[k + 1] + phi[k + 1]) + l3 * Mathf.Cos(q2[k + 1] + q3[k + 1]) * Mathf.Cos(q1[k + 1] + phi[k + 1]) + l4 * Mathf.Cos(q2[k + 1] + q3[k + 1] + q4[k + 1]) * Mathf.Cos(q1[k + 1] + phi[k + 1]);
+        hy[k + 1] = y[k + 1] + l2 * Mathf.Cos(q2[k + 1]) * Mathf.Sin(q1[k + 1] + phi[k + 1]) + l3 * Mathf.Cos(q2[k + 1] + q3[k + 1]) * Mathf.Sin(q1[k + 1] + phi[k + 1]) + l4 * Mathf.Cos(q2[k + 1] + q3[k + 1] + q4[k + 1]) * Mathf.Sin(q1[k + 1] + phi[k + 1]);
+        hz[k + 1] = altura + l1 + l2 * Mathf.Sin(q2[k + 1]) + l3 * Mathf.Sin(q2[k + 1] + q3[k + 1]) + l4 * Mathf.Sin(q2[k + 1] + q3[k + 1] + q4[k + 1]);
+
+
+        setFloat("Memoria0", 0, hx[k + 1]);
+        setFloat("Memoria0", 1, hy[k + 1]);
+        setFloat("Memoria0", 2, hz[k + 1]);
+
+        setFloat("Memoria0", 4, q1[k + 1]);
+        setFloat("Memoria0", 5, q2[k + 1]);
+        setFloat("Memoria0", 6, q3[k + 1]);
+        setFloat("Memoria0", 7, q4[k + 1]);
+        setFloat("Memoria0", 8, phi[k + 1]);
+
+        setFloat("Memoria1", 0, ue);
+        setFloat("Memoria1", 1, we);
+        setFloat("Memoria1", 2, q1pe);
+        setFloat("Memoria1", 3, q2pe);
+        setFloat("Memoria1", 4, q3pe);
+
+        setFloat("Memoria1", 6, u);
+        setFloat("Memoria1", 7, w);
+        setFloat("Memoria1", 8, q1p);
+        setFloat("Memoria1", 9, q2p);
+        setFloat("Memoria1", 10, q3p);
+        setFloat("Memoria1", 11, q4p);
+
+
+        setFloat("Memoria0", 10, x[k + 1]);
+        setFloat("Memoria0", 11, y[k + 1]);
+        setFloat("Memoria0", 12, phi[k + 1]);
+
+        errorX = hxd[k] - hx[k];
+        errorY = hyd[k] - hy[k];
+        errorZ = hzd[k] - hz[k];
+
+        //comunicacion.hx = hx;
+        //comunicacion.hy = hy;
+        //comunicacion.hz = hz;
+    }
+    public void Manipulador_Cinematica()
+    {
+        //hxd[k] = getFloat("Memoria2", 8);
+        //hyd[k] = getFloat("Memoria2", 9);
+        //hzd[k] = getFloat("Memoria2", 10);
+
+        //x[k] = getFloat("Memoria0", 10);
+        //y[k] = getFloat("Memoria0", 11);
+        //phi[k] = getFloat("Memoria0", 12);
+
+        //q1[k] = getFloat("Memoria0", 13);
+        //q2[k] = getFloat("Memoria0", 14);
+        //q3 = getFloat("Memoria0", 15);
+        //q4 = getFloat("Memoria0", 16);
+
+        //hx = x + l2 * Mathf.Cos(q2) * Mathf.Cos(q1 + phi) + l3 * Mathf.Cos(q2 + q3) * Mathf.Cos(q1 + phi) + l4 * Mathf.Cos(q2 + q3 + q4) * Mathf.Cos(q1 + phi);
+        //hy = y + l2 * Mathf.Cos(q2) * Mathf.Sin(q1 + phi) + l3 * Mathf.Cos(q2 + q3) * Mathf.Sin(q1 + phi) + l4 * Mathf.Cos(q2 + q3 + q4) * Mathf.Sin(q1 + phi);
+        //hz = altura + l1 + l2 * Mathf.Sin(q2) + l3 * Mathf.Sin(q2 + q3) + l4 * Mathf.Sin(q2 + q3 + q4);
+
+        //setFloat("Memoria0", 0, hx);
+        //setFloat("Memoria0", 1, hy);
+        //setFloat("Memoria0", 2, hz);
+
+        //errorX = hxd - hx;
+        //errorY = hyd - hy;
+        //errorZ = hzd - hz;
+    }
+    public float[,] Compensacion_Dinamica(float[,] vrefp, float[,] vref_e, float[,] v, float[,] q, float ts)
+    {
+        //***** COMPENSACION DINAMICA
+        float C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, C13, C14, C15, C16;
+        float M11, M12, M13, M14, M15, M21, M22, M23, M24, M25, M31, M32, M33, M34, M35, M41, M42, M43, M44, M45, M51, M52, M53, M54, M55;
+        float Cs11, Cs12, Cs13, Cs14, Cs15, Cs21, Cs22, Cs23, Cs24, Cs25, Cs31, Cs32, Cs33, Cs34, Cs35, Cs41, Cs42, Cs43, Cs44, Cs45, Cs51, Cs52, Cs53, Cs54, Cs55;
+
+        float us, ws, q1ps, q2ps, q3ps;
+        float ths, q1s, q2s, q3s;
+
+
+        float G4, G5;
+
+        //% a) Velocidades de la plataforma móvil y del brazo robótico
+        us =   v[0, 0];
+        ws =   v[1, 0];
+        q1ps = v[2, 0];
+        q2ps = v[3, 0];
+        q3ps = v[4, 0];
+
+
+        //% b) Estados de la plataforma móvil y del brazo robótico
+        ths = q[1,0];
+        q1s = q[2, 0];
+        q2s = q[3, 0];
+        q3s = q[4, 0];
+
+
+        //% c) Parámetros Dinámicos del AKASHA
+        float m = 30f, r = 0.15f, R = 0.25f, a = 0.195f;
+        float m2 = 3f,  m3 = 4f;
+        float l2 = 0.275f, l3 = 0.375f, g = 9.81f, Ra = 4.6f;
+        float Kp = 4f, Kd = 0.63f, Ka = 584f, Kb = 0.05f;
+        float Kpt = 4f, Kpr = 2f, Kdt = 0.63f, Kdr = 0.28f;
+        float Kpa = 584f, Kpb = 0.05f, Rpa = 4.6f;
+
+        C1 = Kdt / Kpt;
+        C2 = Rpa * r * (m + m2 + m3) / (2 * Kpa * Kpt);
+        C3 = Rpa * m2 * r / (2 * Kpa * Kpt);
+        C4 = Rpa * m3 * r / (2 * Kpa * Kpt);
+        C5 = Rpa * m2 * r / (2 * Kpa * Kpr * R);
+        C6 = Rpa * m3 * r / (2 * Kpa * Kpr * R);
+        C7 = Kdr / Kpr;
+        C8 = Rpa * r * (m + m2 + m3) / (2 * Kpa * Kpr * R);
+
+        C9 = Ra * m2 / (Ka * Kp);
+        C10 = Ra * m3 / (Ka * Kp);
+        C11 = Kd / (Kp);
+        C12 = Kpb / (Kpt * r) + 0.95f;
+        C13 = Kpb * R / (Kpr * r) + 0.95f;
+        C14 = Kb / (Kp) + 0.95f;
+        C15 = Ra * g * m2 / (Ka * Kp);
+        C16 = Ra * g * m3 / (Ka * Kp);
+
+
+        //% d) Matriz de Inercia
+        M11 = C1 + C2;
+        M12 = -l2 * C3 * Mathf.Cos(q2s) * Mathf.Sin(q1s) - C4 * (l2 * Mathf.Cos(q2s) * Mathf.Sin(q1s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q1s));
+        M13 = -l2 * C3 * Mathf.Cos(q2s) * Mathf.Sin(q1s) - C4 * (l2 * Mathf.Cos(q2s) * Mathf.Sin(q1s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q1s));
+        M14 = -l2 * C3 * Mathf.Sin(q2s) * Mathf.Cos(q1s) - C4 * (l2 * Mathf.Sin(q2s) * Mathf.Cos(q1s) + l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q1s));
+        M15 = -C4 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q1s);
+
+        M21 = -l2 * C3 * Mathf.Cos(q2s) * Mathf.Sin(q1s) - C4 * (l2 * Mathf.Cos(q2s) * Mathf.Sin(q1s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q1s));
+        M22 = C7 + C8 * (1 + 2 * a * a) + C5 * l2 * Mathf.Cos(q2s) * (l2 * Mathf.Cos(q2s) + 2 * a * Mathf.Cos(q1s) + a * Mathf.Cos(ths + q1s) * Mathf.Cos(ths) + a * Mathf.Sin(ths + q1s) * Mathf.Sin(ths)) + C6 * (l3 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q2s + q3s) + l2 * l2 * Mathf.Cos(q2s) * Mathf.Cos(q2s) + 2 * l2 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q2s) + 2 * a * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s) + 2 * a * l2 * Mathf.Cos(q2s) * Mathf.Cos(q1s) + a * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s) + a * l2 * Mathf.Cos(q2s) * Mathf.Cos(q1s));
+        M23 = C5 * (l2 * l2 * Mathf.Cos(q2s) * Mathf.Cos(q2s) + a * l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s)) + C6 * (l3 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q2s + q3s) + l2 * l2 * Mathf.Cos(q2s) * Mathf.Cos(q2s) + a * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s) + a * l2 * Mathf.Cos(q2s) * Mathf.Cos(q1s) + 2 * l2 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q2s));
+        M24 = -C5 * a * l2 * Mathf.Sin(q2s) * Mathf.Sin(q1s) - C6 * (a * l2 * Mathf.Sin(q2s) * Mathf.Sin(q1s) + a * l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s));
+        M25 = -C6 * a * l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s);
+
+        M31 = -l2 * C9 * Mathf.Cos(q2s) * Mathf.Sin(q1s) - C10 * (l2 * Mathf.Cos(q2s) * Mathf.Sin(q1s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q1s));
+        M32 = C9 * (l2 * l2 * Mathf.Cos(q2s) * Mathf.Cos(q2s) + 2 * a * l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s)) + C10 * (l3 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q2s + q3s) + l2 *l2 * Mathf.Cos(q2s) * Mathf.Cos(q2s) + 2 * a * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s) + 2 * a * l2 * Mathf.Cos(q2s) * Mathf.Cos(q1s) + 2 * l2 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q2s));
+        M33 = C11 + C9 * l2 * l2 * Mathf.Cos(q2s) * Mathf.Cos(q2s) + C10 * (l3 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q2s + q3s) + l2 * l2 * Mathf.Cos(q2s) * Mathf.Cos(q2s) + 2 * l2 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q2s));
+        M34 = 0;
+        M35 = 0;
+
+        M41 = -l2 * C9 * Mathf.Sin(q2s) * Mathf.Cos(q1s) - C10 * (l2 * Mathf.Sin(q2s) * Mathf.Cos(q1s) + l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q1s));
+        M42 = -C9 * 2 * a * l2 * Mathf.Sin(q2s) * Mathf.Sin(q1s) - C10 * (2 * a * l2 * Mathf.Sin(q2s) * Mathf.Sin(q1s) + 2 * a * l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s));
+        M43 = 0;
+        M44 = C11 + C9 * l2 * l2 + C10 * (l2 * l2 + l3 * l3 + 2 * l2 * l3 * Mathf.Cos(q3s));
+        M45 = C10 * l3 * (l3 + l2 * Mathf.Cos(q3s));
+
+        M51 = -C10 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q1s);
+        M52 = -C10 * 2 * a * l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s);
+        M53 = 0;
+        M54 = C10 * l3 * (l3 + l2 * Mathf.Cos(q3s));
+        M55 = C11 + C10 * l3 * l3;
+
+        float[,] M = new float[5, 5] { { M11, M12, M13, M14, M15},
+                                       { M21, M22, M23, M24, M25},
+                                       { M31, M32, M33, M34, M35},
+                                       { M41, M42, M43, M44, M45},
+                                       { M51, M52, M53, M54, M55}};
+        //% e) Matriz de Ganancia
+        float[,] K = new float[5, 5] { { -1,  0,  0,  0,  0},
+                                       {  0, -1,  0,  0,  0},
+                                       {  0,  0, -1,  0,  0},
+                                       {  0,  0,  0, -1,  0},
+                                       {  0,  0,  0,  0, -1}};
+
+        //% f) Matriz de Fuerzas Centrípetas y de Coriolis
+        Cs11 = C12;
+        Cs12 = -2 * a * C2 * ws + C3 * (l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s) * q2ps - l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) * ws - l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) * q1ps) + C4 * (l3 * Mathf.Sin(q1s) * Mathf.Sin(q2s + q3s) * q3ps + (l3 * Mathf.Sin(q1s) * Mathf.Sin(q2s + q3s) + l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s)) * q2ps - (l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s)) * q1ps - (l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s)) * ws);
+        Cs13 = C3 * (l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s) * q2ps + l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) * q1ps - l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) * ws) + C4 * (l3 * Mathf.Sin(q1s) * Mathf.Sin(q2s + q3s) * q3ps + (l3 * Mathf.Sin(q1s) * Mathf.Sin(q2s + q3s) + l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s)) * q2ps - (l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s)) * q1ps - (l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s)) * ws);
+        Cs14 = C3 * (l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s) * ws + l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s) * q1ps - l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) * q2ps) + C4 * ((l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s) + l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s)) * ws + (l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s) + l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s)) * q1ps - (l3 * Mathf.Cos(q1s) * Mathf.Cos(q2s + q3s) + l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s)) * q2ps - l3 * Mathf.Cos(q1s) * Mathf.Cos(q2s + q3s) * q3ps);
+        Cs15 = C4 * (l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s) * ws + l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s) * q1ps - l3 * Mathf.Cos(q1s) * Mathf.Cos(q2s + q3s) * q2ps - l3 * Mathf.Cos(q1s) * Mathf.Cos(q2s + q3s) * q3ps);
+
+        Cs21 = C8 * ws + (C5 * (l2 * Mathf.Cos(q1s) * Mathf.Cos(ths) * Mathf.Cos(2 * q1s + q2s) + 2 * l2 * Mathf.Sin(q1s + ths) * Mathf.Cos(q2s) * Mathf.Sin(ths)) + C6 * (l2 * Mathf.Cos(q2s) * Mathf.Cos(ths) * Mathf.Cos(q1s - q2s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(ths) * Mathf.Cos(q1s - q2s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(ths + q1s) * Mathf.Sin(ths))) * ws;
+        Cs22 = C12 + C5 * (a * l2 * Mathf.Cos(q2s) * Mathf.Sin(q1s) * (ws + q1ps) + (l2 * l2 * Mathf.Cos(q2s) * Mathf.Sin(q2s) + a * l2 * Mathf.Cos(q1s) * Mathf.Sin(q2s)) * q2ps) + C6 * ((a * l2 * Mathf.Cos(q2s) * Mathf.Sin(q1s) + a * l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q1s)) * (ws + q1ps) + (a * l2 * Mathf.Cos(q1s) * Mathf.Sin(q2s) + l2 * l2 * Mathf.Cos(q2s) * Mathf.Sin(q2s) + l2 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q2s)) * q2ps + (l2 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s) + l3 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q2s + q3s) + a * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q1s)) * (q2ps + q3ps));
+        Cs23 = -C5 * (a * l2 * Mathf.Cos(q2s) * Mathf.Sin(q1s) * (ws + q1ps) + (l2 * l2 * Mathf.Cos(q2s) * Mathf.Sin(q2s) + a * l2 * Mathf.Cos(q1s) * Mathf.Sin(q2s)) * q2ps) - C6 * ((a * l2 * Mathf.Cos(q2s) * Mathf.Sin(q1s) + a * l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q1s)) * (ws + q1ps) + (a * l2 * Mathf.Cos(q1s) * Mathf.Sin(q2s) + l2 * l2 * Mathf.Cos(q2s) * Mathf.Sin(q2s) + l2 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q2s)) * q2ps + (l2 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s) + l3 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q2s + q3s) + a * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q1s)) * (q2ps + q3ps));
+        Cs24 = -C5 * ((l2 * l2 * Mathf.Cos(q2s) * Mathf.Sin(q2s) + a * l2 * Mathf.Cos(q1s) * Mathf.Sin(q2s) * (ws + q1ps) + a * l2 * Mathf.Sin(q1s) * Mathf.Cos(q2s)) * (q2ps + q3ps)) - C6 * ((l2 * l2 * Mathf.Cos(q2s) * Mathf.Sin(q2s) + l3 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q2s + q3s) + a * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q1s) + l2 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q2s) + l2 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s) + a * l2 * Mathf.Cos(q1s) * Mathf.Sin(q2s)) * (ws + q1ps) + (a * l2 * Mathf.Sin(q1s) * Mathf.Cos(q2s) + a * l3 * Mathf.Sin(q1s) * Mathf.Cos(q2s + q3s)) * (q2ps + q3ps));
+        Cs25 = -C6 * ((l2 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s + q3s) + a * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q1s) + l2 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s))) * (ws + q1ps) + (a * l3 * Mathf.Sin(q1s) * Mathf.Cos(q2s + q3s)) * (q2ps + q3ps);
+
+        Cs31 = C9 * l2 * Mathf.Cos(q2s) * Mathf.Cos(q1s) * ws + C10 * (l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s)) * ws;
+        Cs32 = C9 * (-(l2 * l2) / 2 * Mathf.Sin(2 * q2s) * q2ps + (a * l2 * Mathf.Sin(q1s + q2s) + a * l2 * Mathf.Sin(q1s - q2s)) * ws) + C10 * ((a * l2 * Mathf.Sin(q1s + q2s) + a * l2 * Mathf.Sin(q1s - q2s) - a * l3 / 4 * Mathf.Sin(q2s - q1s + q3s) + 3 * a * l3 / 4 * Mathf.Sin(q1s - q2s - q3s) + a * l3 * Mathf.Sin(q1s + q2s + q3s)) * ws - ((l2 * l2) / 2 * Mathf.Sin(2 * q2s) + (l3 * l3) / 2 * Mathf.Sin(2 * q2s + 2 * q3s) + l2 * l3 * Mathf.Sin(2 * q2s + q3s)) * q2ps - ((l3 * l3) / 2 * Mathf.Sin(2 * q2s + 2 * q3s) + l2 * l3 / 2 * Mathf.Sin(q3s) + l2 * l3 / 2 * Mathf.Sin(2 * q2s + q3s)) * q3ps);
+        Cs33 = C14 - C9 * (l2 * l2) / 2 * Mathf.Sin(2 * q2s) * q2ps - C10 * (((l2 * l2) / 2 * Mathf.Sin(2 * q2s) + (l3 * l3) / 2 * Mathf.Sin(2 * q2s + 2 * q3s) + l2 * l3 * Mathf.Sin(2 * q2s + q3s)) * q2ps + (l2 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s) + (l3 * l3) * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s + q3s)) * q3ps);
+        Cs34 = C9 * (l2 * l2) / 2 * Mathf.Sin(2 * q2s) * (ws + q1ps) + C10 * (((l2 * l2) / 2 * Mathf.Sin(2 * q2s) + (l3 * l3) / 2 * Mathf.Sin(2 * q2s + 2 * q3s) + l2 * l3 * Mathf.Sin(2 * q2s + q3s))) * (ws + q1ps);
+        Cs35 = C10 * ((l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s + q3s) + l2 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s))) * (ws + q1ps);
+
+        Cs41 = -C9 * l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s) * ws - C10 * (l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s) + l3 * Mathf.Sin(q1s) * Mathf.Sin(q2s + q3s)) * ws;
+        Cs42 = C9 * ((l2 * l2) / 2 * Mathf.Sin(2 * q2s) * (ws + q1ps) + (a * l2 * Mathf.Sin(q1s + q2s) - a * l2 * Mathf.Sin(q1s - q2s)) * ws) + C10 * ((a * l2 * Mathf.Sin(q1s + q2s) - a * l2 * Mathf.Sin(q1s - q2s) + a * l3 / 4 * Mathf.Sin(q2s - q1s + q3s) - 3 * a * l3 / 4 * Mathf.Sin(q1s - q2s - q3s) + a * l3 * Mathf.Sin(q1s + q2s + q3s)) * ws + ((l2 * l2) / 2 * Mathf.Sin(2 * q2s) + (l2 * l2) / 2 * Mathf.Sin(2 * q2s + 2 * q3s) + l2 * l3 * Mathf.Sin(2 * q2s + q3s)) * (ws + q1ps));
+        Cs43 = C9 * ((l2 * l2) / 2 * Mathf.Sin(2 * q2s) * (ws + q1ps)) + C10 * ((l2 * l2) / 2 * Mathf.Sin(2 * q2s) + (l3 * l3) / 2 * Mathf.Sin(2 * q2s + 2 * q3s) + l2 * l3 * Mathf.Sin(2 * q2s + q3s)) * (ws + q1ps);
+        Cs44 = C14 - C10 * l2 * l3 * Mathf.Sin(q3s) * q3ps;
+        Cs45 = -C10 * l2 * l3 * Mathf.Sin(q3s) * (q2ps + q3ps);
+
+        Cs51 = -C10 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s) * ws;
+        Cs52 = C10 * l3 * Mathf.Sin(q2s + q3s) * ((2 * a * Mathf.Cos(q1s) + l2 * Mathf.Cos(q2s) + l3 * Mathf.Cos(q2s + q3s)) * ws + (a * Mathf.Cos(q1s) + l3 * Mathf.Cos(q2s + q3s)) * q1ps);
+        Cs53 = C10 * l3 * Mathf.Sin(q2s + q3s) * (l3 * Mathf.Cos(q2s + q3s) + l2 * Mathf.Cos(q2s)) * (ws + q1ps);
+        Cs54 = C10 * l2 * l3 * Mathf.Sin(q3s) * q2ps;
+        Cs55 = C14;
+
+        float[,] C = new float[5, 5] { { Cs11, Cs12, Cs13, Cs14, Cs15},
+                                       { Cs21, Cs22, Cs23, Cs24, Cs25},
+                                       { Cs31, Cs32, Cs33, Cs34, Cs35},
+                                       { Cs41, Cs42, Cs43, Cs44, Cs45},
+                                       { Cs51, Cs52, Cs53, Cs54, Cs55}};
+
+
+        //% g) Vector gravitacional
+        G4 = C15 * l2 * Mathf.Cos(q2s) + C16 * (l3 * Mathf.Cos(q2s + q3s) + l2 * Mathf.Cos(q2s));
+        G5 = C16 * l3 * Mathf.Cos(q2s + q3s);
+
+        float[,] G = new float[5, 1] { { 0 }, { 0 }, { 0 }, { G4 }, { G5 }};
+
+
+        //% h) Modelo para compensación dinámica
+
+        // Multiplicacion C * v
+        float[,] mul_Cv = new float[5, 1];
+
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 1; j++)
+            {
+                mul_Cv[i, j] = 0;
+                for (int l = 0; l < 5; l++)
+                {
+                    mul_Cv[i, j] += C[i, l] * v[l, j];
+                }
+            }
+        }
+
+        // Suma C*v + G
+        float[,] Sum_Cv_G = new float[5, 1];
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 1; j++)
+            {
+                Sum_Cv_G[i, j] = mul_Cv[i, j] + G[i, j];
+            }
+        }
+
+        // Multiplicacion K * vref_e
+        float[,] mul_KVref_e = new float[5, 1];
+
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 1; j++)
+            {
+                mul_KVref_e[i, j] = 0;
+                for (int l = 0; l < 5; l++)
+                {
+                    mul_KVref_e[i, j] += K[i, l] * vref_e[l, j];
+                }
+            }
+        }
+
+        // Suma vrefp + K * vref_e
+        float[,] Sum_vrefp_KVref_e = new float[5, 1];
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 1; j++)
+            {
+                Sum_vrefp_KVref_e[i, j] = vrefp[i, j] + mul_KVref_e[i, j];
+            }
+        }
+
+        // Multiplicacion M * (vrefp + K * vref_e)
+        float[,] mul_M_vrefp_KVref_e = new float[5, 1];
+
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 1; j++)
+            {
+                mul_M_vrefp_KVref_e[i, j] = 0;
+                for (int l = 0; l < 5; l++)
+                {
+                    mul_M_vrefp_KVref_e[i, j] += M[i, l] * Sum_vrefp_KVref_e[l, j];
+                }
+            }
+        }
+
+        // Suma vref
+        float[,] vref = new float[5, 1];
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 1; j++)
+            {
+                vref[i, j] = mul_M_vrefp_KVref_e[i, j] + Sum_Cv_G[i, j];
+            }
+        }
+        us = vref[0, 0];
+        ws = vref[1, 0];
+        q1ps = vref[2, 0];
+        q2ps = vref[3, 0];
+        q3ps = vref[4, 0];
+
+        float[,] v_1 = new float[5, 1] { { us }, { ws }, { q1ps }, { q2ps }, { q3ps } };
+
+        return v_1;
+    }
+    public float[,] Akasha_Dinamica(float[,] vref, float[,] v, float[,] q, float ts)
+    {
+        //***** COMPENSACION DINAMICA
+        float C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, C13, C14, C15, C16;
+        float M11, M12, M13, M14, M15, M21, M22, M23, M24, M25, M31, M32, M33, M34, M35, M41, M42, M43, M44, M45, M51, M52, M53, M54, M55;
+        float Cs11, Cs12, Cs13, Cs14, Cs15, Cs21, Cs22, Cs23, Cs24, Cs25, Cs31, Cs32, Cs33, Cs34, Cs35, Cs41, Cs42, Cs43, Cs44, Cs45, Cs51, Cs52, Cs53, Cs54, Cs55;
+        float vp11, vp12, vp13, vp14, vp15, vp21, vp22, vp23, vp24, vp25, vp31, vp32, vp33, vp34, vp35, vp41, vp42, vp43, vp44, vp45, vp51, vp52, vp53, vp54, vp55;
+
+        float us, ws, q1ps, q2ps, q3ps;
+        float ths, q1s, q2s, q3s;
+
+        float G4, G5;
+        //% a) Velocidades de la plataforma móvil y del brazo robótico
+        us = v[0, 0];
+        ws = v[1, 0];
+        q1ps = v[2, 0];
+        q2ps = v[3, 0];
+        q3ps = v[4, 0];
+
+
+        //% b) Estados de la plataforma móvil y del brazo robótico
+        ths = q[1, 0];
+        q1s = q[2, 0];
+        q2s = q[3, 0];
+        q3s = q[4, 0];
+
+
+        //% c) Parámetros Dinámicos del AKASHA
+        float m = 30f, r = 0.15f, R = 0.25f, a = 0.195f;
+        float m2 = 3f, m3 = 4f;
+        float l2 = 0.275f, l3 = 0.375f, g = 9.81f, Ra = 4.6f;
+        float Kp = 4f, Kd = 0.63f, Ka = 584f, Kb = 0.05f;
+        float Kpt = 4f, Kpr = 2f, Kdt = 0.63f, Kdr = 0.28f;
+        float Kpa = 584f, Kpb = 0.05f, Rpa = 4.6f;
+
+        C1 = Kdt / Kpt;
+        C2 = Rpa * r * (m + m2 + m3) / (2 * Kpa * Kpt);
+        C3 = Rpa * m2 * r / (2 * Kpa * Kpt);
+        C4 = Rpa * m3 * r / (2 * Kpa * Kpt);
+        C5 = Rpa * m2 * r / (2 * Kpa * Kpr * R);
+        C6 = Rpa * m3 * r / (2 * Kpa * Kpr * R);
+        C7 = Kdr / Kpr;
+        C8 = Rpa * r * (m + m2 + m3) / (2 * Kpa * Kpr * R);
+
+        C9 = Ra * m2 / (Ka * Kp);
+        C10 = Ra * m3 / (Ka * Kp);
+        C11 = Kd / (Kp);
+        C12 = Kpb / (Kpt * r) + 0.95f;
+        C13 = Kpb * R / (Kpr * r) + 0.95f;
+        C14 = Kb / (Kp) + 0.95f;
+        C15 = Ra * g * m2 / (Ka * Kp);
+        C16 = Ra * g * m3 / (Ka * Kp);
+
+
+        //% d) Matriz de Inercia
+        M11 = C1 + C2;
+        M12 = -l2 * C3 * Mathf.Cos(q2s) * Mathf.Sin(q1s) - C4 * (l2 * Mathf.Cos(q2s) * Mathf.Sin(q1s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q1s));
+        M13 = -l2 * C3 * Mathf.Cos(q2s) * Mathf.Sin(q1s) - C4 * (l2 * Mathf.Cos(q2s) * Mathf.Sin(q1s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q1s));
+        M14 = -l2 * C3 * Mathf.Sin(q2s) * Mathf.Cos(q1s) - C4 * (l2 * Mathf.Sin(q2s) * Mathf.Cos(q1s) + l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q1s));
+        M15 = -C4 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q1s);
+
+        M21 = -l2 * C3 * Mathf.Cos(q2s) * Mathf.Sin(q1s) - C4 * (l2 * Mathf.Cos(q2s) * Mathf.Sin(q1s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q1s));
+        M22 = C7 + C8 * (1 + 2 * a * a) + C5 * l2 * Mathf.Cos(q2s) * (l2 * Mathf.Cos(q2s) + 2 * a * Mathf.Cos(q1s) + a * Mathf.Cos(ths + q1s) * Mathf.Cos(ths) + a * Mathf.Sin(ths + q1s) * Mathf.Sin(ths)) + C6 * (l3 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q2s + q3s) + l2 * l2 * Mathf.Cos(q2s) * Mathf.Cos(q2s) + 2 * l2 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q2s) + 2 * a * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s) + 2 * a * l2 * Mathf.Cos(q2s) * Mathf.Cos(q1s) + a * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s) + a * l2 * Mathf.Cos(q2s) * Mathf.Cos(q1s));
+        M23 = C5 * (l2 * l2 * Mathf.Cos(q2s) * Mathf.Cos(q2s) + a * l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s)) + C6 * (l3 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q2s + q3s) + l2 * l2 * Mathf.Cos(q2s) * Mathf.Cos(q2s) + a * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s) + a * l2 * Mathf.Cos(q2s) * Mathf.Cos(q1s) + 2 * l2 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q2s));
+        M24 = -C5 * a * l2 * Mathf.Sin(q2s) * Mathf.Sin(q1s) - C6 * (a * l2 * Mathf.Sin(q2s) * Mathf.Sin(q1s) + a * l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s));
+        M25 = -C6 * a * l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s);
+
+        M31 = -l2 * C9 * Mathf.Cos(q2s) * Mathf.Sin(q1s) - C10 * (l2 * Mathf.Cos(q2s) * Mathf.Sin(q1s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q1s));
+        M32 = C9 * (l2 * l2 * Mathf.Cos(q2s) * Mathf.Cos(q2s) + 2 * a * l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s)) + C10 * (l3 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q2s + q3s) + l2 * l2 * Mathf.Cos(q2s) * Mathf.Cos(q2s) + 2 * a * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s) + 2 * a * l2 * Mathf.Cos(q2s) * Mathf.Cos(q1s) + 2 * l2 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q2s));
+        M33 = C11 + C9 * l2 * l2 * Mathf.Cos(q2s) * Mathf.Cos(q2s) + C10 * (l3 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q2s + q3s) + l2 * l2 * Mathf.Cos(q2s) * Mathf.Cos(q2s) + 2 * l2 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q2s));
+        M34 = 0;
+        M35 = 0;
+
+        M41 = -l2 * C9 * Mathf.Sin(q2s) * Mathf.Cos(q1s) - C10 * (l2 * Mathf.Sin(q2s) * Mathf.Cos(q1s) + l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q1s));
+        M42 = -C9 * 2 * a * l2 * Mathf.Sin(q2s) * Mathf.Sin(q1s) - C10 * (2 * a * l2 * Mathf.Sin(q2s) * Mathf.Sin(q1s) + 2 * a * l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s));
+        M43 = 0;
+        M44 = C11 + C9 * l2 * l2 + C10 * (l2 * l2 + l3 * l3 + 2 * l2 * l3 * Mathf.Cos(q3s));
+        M45 = C10 * l3 * (l3 + l2 * Mathf.Cos(q3s));
+
+        M51 = -C10 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q1s);
+        M52 = -C10 * 2 * a * l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s);
+        M53 = 0;
+        M54 = C10 * l3 * (l3 + l2 * Mathf.Cos(q3s));
+        M55 = C11 + C10 * l3 * l3;
+
+        double[,] M = new double[5, 5] { { M11, M12, M13, M14, M15},
+                                       { M21, M22, M23, M24, M25},
+                                       { M31, M32, M33, M34, M35},
+                                       { M41, M42, M43, M44, M45},
+                                       { M51, M52, M53, M54, M55}};
+
+        //% e) Matriz de Fuerzas Centrípetas y de Coriolis
+        Cs11 = C12;
+        Cs12 = -2 * a * C2 * ws + C3 * (l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s) * q2ps - l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) * ws - l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) * q1ps) + C4 * (l3 * Mathf.Sin(q1s) * Mathf.Sin(q2s + q3s) * q3ps + (l3 * Mathf.Sin(q1s) * Mathf.Sin(q2s + q3s) + l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s)) * q2ps - (l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s)) * q1ps - (l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s)) * ws);
+        Cs13 = C3 * (l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s) * q2ps + l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) * q1ps - l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) * ws) + C4 * (l3 * Mathf.Sin(q1s) * Mathf.Sin(q2s + q3s) * q3ps + (l3 * Mathf.Sin(q1s) * Mathf.Sin(q2s + q3s) + l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s)) * q2ps - (l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s)) * q1ps - (l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s)) * ws);
+        Cs14 = C3 * (l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s) * ws + l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s) * q1ps - l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) * q2ps) + C4 * ((l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s) + l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s)) * ws + (l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s) + l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s)) * q1ps - (l3 * Mathf.Cos(q1s) * Mathf.Cos(q2s + q3s) + l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s)) * q2ps - l3 * Mathf.Cos(q1s) * Mathf.Cos(q2s + q3s) * q3ps);
+        Cs15 = C4 * (l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s) * ws + l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s) * q1ps - l3 * Mathf.Cos(q1s) * Mathf.Cos(q2s + q3s) * q2ps - l3 * Mathf.Cos(q1s) * Mathf.Cos(q2s + q3s) * q3ps);
+
+        Cs21 = C8 * ws + (C5 * (l2 * Mathf.Cos(q1s) * Mathf.Cos(ths) * Mathf.Cos(2 * q1s + q2s) + 2 * l2 * Mathf.Sin(q1s + ths) * Mathf.Cos(q2s) * Mathf.Sin(ths)) + C6 * (l2 * Mathf.Cos(q2s) * Mathf.Cos(ths) * Mathf.Cos(q1s - q2s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(ths) * Mathf.Cos(q1s - q2s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(ths + q1s) * Mathf.Sin(ths))) * ws;
+        Cs22 = C12 + C5 * (a * l2 * Mathf.Cos(q2s) * Mathf.Sin(q1s) * (ws + q1ps) + (l2 * l2 * Mathf.Cos(q2s) * Mathf.Sin(q2s) + a * l2 * Mathf.Cos(q1s) * Mathf.Sin(q2s)) * q2ps) + C6 * ((a * l2 * Mathf.Cos(q2s) * Mathf.Sin(q1s) + a * l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q1s)) * (ws + q1ps) + (a * l2 * Mathf.Cos(q1s) * Mathf.Sin(q2s) + l2 * l2 * Mathf.Cos(q2s) * Mathf.Sin(q2s) + l2 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q2s)) * q2ps + (l2 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s) + l3 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q2s + q3s) + a * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q1s)) * (q2ps + q3ps));
+        Cs23 = -C5 * (a * l2 * Mathf.Cos(q2s) * Mathf.Sin(q1s) * (ws + q1ps) + (l2 * l2 * Mathf.Cos(q2s) * Mathf.Sin(q2s) + a * l2 * Mathf.Cos(q1s) * Mathf.Sin(q2s)) * q2ps) - C6 * ((a * l2 * Mathf.Cos(q2s) * Mathf.Sin(q1s) + a * l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q1s)) * (ws + q1ps) + (a * l2 * Mathf.Cos(q1s) * Mathf.Sin(q2s) + l2 * l2 * Mathf.Cos(q2s) * Mathf.Sin(q2s) + l2 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q2s)) * q2ps + (l2 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s) + l3 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q2s + q3s) + a * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q1s)) * (q2ps + q3ps));
+        Cs24 = -C5 * ((l2 * l2 * Mathf.Cos(q2s) * Mathf.Sin(q2s) + a * l2 * Mathf.Cos(q1s) * Mathf.Sin(q2s) * (ws + q1ps) + a * l2 * Mathf.Sin(q1s) * Mathf.Cos(q2s)) * (q2ps + q3ps)) - C6 * ((l2 * l2 * Mathf.Cos(q2s) * Mathf.Sin(q2s) + l3 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q2s + q3s) + a * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q1s) + l2 * l3 * Mathf.Cos(q2s + q3s) * Mathf.Sin(q2s) + l2 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s) + a * l2 * Mathf.Cos(q1s) * Mathf.Sin(q2s)) * (ws + q1ps) + (a * l2 * Mathf.Sin(q1s) * Mathf.Cos(q2s) + a * l3 * Mathf.Sin(q1s) * Mathf.Cos(q2s + q3s)) * (q2ps + q3ps));
+        Cs25 = -C6 * ((l2 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s + q3s) + a * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q1s) + l2 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s))) * (ws + q1ps) + (a * l3 * Mathf.Sin(q1s) * Mathf.Cos(q2s + q3s)) * (q2ps + q3ps);
+
+        Cs31 = C9 * l2 * Mathf.Cos(q2s) * Mathf.Cos(q1s) * ws + C10 * (l2 * Mathf.Cos(q1s) * Mathf.Cos(q2s) + l3 * Mathf.Cos(q2s + q3s) * Mathf.Cos(q1s)) * ws;
+        Cs32 = C9 * (-(l2 * l2) / 2 * Mathf.Sin(2 * q2s) * q2ps + (a * l2 * Mathf.Sin(q1s + q2s) + a * l2 * Mathf.Sin(q1s - q2s)) * ws) + C10 * ((a * l2 * Mathf.Sin(q1s + q2s) + a * l2 * Mathf.Sin(q1s - q2s) - a * l3 / 4 * Mathf.Sin(q2s - q1s + q3s) + 3 * a * l3 / 4 * Mathf.Sin(q1s - q2s - q3s) + a * l3 * Mathf.Sin(q1s + q2s + q3s)) * ws - ((l2 * l2) / 2 * Mathf.Sin(2 * q2s) + (l3 * l3) / 2 * Mathf.Sin(2 * q2s + 2 * q3s) + l2 * l3 * Mathf.Sin(2 * q2s + q3s)) * q2ps - ((l3 * l3) / 2 * Mathf.Sin(2 * q2s + 2 * q3s) + l2 * l3 / 2 * Mathf.Sin(q3s) + l2 * l3 / 2 * Mathf.Sin(2 * q2s + q3s)) * q3ps);
+        Cs33 = C14 - C9 * (l2 * l2) / 2 * Mathf.Sin(2 * q2s) * q2ps - C10 * (((l2 * l2) / 2 * Mathf.Sin(2 * q2s) + (l3 * l3) / 2 * Mathf.Sin(2 * q2s + 2 * q3s) + l2 * l3 * Mathf.Sin(2 * q2s + q3s)) * q2ps + (l2 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s) + (l3 * l3) * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s + q3s)) * q3ps);
+        Cs34 = C9 * (l2 * l2) / 2 * Mathf.Sin(2 * q2s) * (ws + q1ps) + C10 * (((l2 * l2) / 2 * Mathf.Sin(2 * q2s) + (l3 * l3) / 2 * Mathf.Sin(2 * q2s + 2 * q3s) + l2 * l3 * Mathf.Sin(2 * q2s + q3s))) * (ws + q1ps);
+        Cs35 = C10 * ((l3 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s + q3s) + l2 * Mathf.Sin(q2s + q3s) * Mathf.Cos(q2s))) * (ws + q1ps);
+
+        Cs41 = -C9 * l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s) * ws - C10 * (l2 * Mathf.Sin(q1s) * Mathf.Sin(q2s) + l3 * Mathf.Sin(q1s) * Mathf.Sin(q2s + q3s)) * ws;
+        Cs42 = C9 * ((l2 * l2) / 2 * Mathf.Sin(2 * q2s) * (ws + q1ps) + (a * l2 * Mathf.Sin(q1s + q2s) - a * l2 * Mathf.Sin(q1s - q2s)) * ws) + C10 * ((a * l2 * Mathf.Sin(q1s + q2s) - a * l2 * Mathf.Sin(q1s - q2s) + a * l3 / 4 * Mathf.Sin(q2s - q1s + q3s) - 3 * a * l3 / 4 * Mathf.Sin(q1s - q2s - q3s) + a * l3 * Mathf.Sin(q1s + q2s + q3s)) * ws + ((l2 * l2) / 2 * Mathf.Sin(2 * q2s) + (l2 * l2) / 2 * Mathf.Sin(2 * q2s + 2 * q3s) + l2 * l3 * Mathf.Sin(2 * q2s + q3s)) * (ws + q1ps));
+        Cs43 = C9 * ((l2 * l2) / 2 * Mathf.Sin(2 * q2s) * (ws + q1ps)) + C10 * ((l2 * l2) / 2 * Mathf.Sin(2 * q2s) + (l3 * l3) / 2 * Mathf.Sin(2 * q2s + 2 * q3s) + l2 * l3 * Mathf.Sin(2 * q2s + q3s)) * (ws + q1ps);
+        Cs44 = C14 - C10 * l2 * l3 * Mathf.Sin(q3s) * q3ps;
+        Cs45 = -C10 * l2 * l3 * Mathf.Sin(q3s) * (q2ps + q3ps);
+
+        Cs51 = -C10 * l3 * Mathf.Sin(q2s + q3s) * Mathf.Sin(q1s) * ws;
+        Cs52 = C10 * l3 * Mathf.Sin(q2s + q3s) * ((2 * a * Mathf.Cos(q1s) + l2 * Mathf.Cos(q2s) + l3 * Mathf.Cos(q2s + q3s)) * ws + (a * Mathf.Cos(q1s) + l3 * Mathf.Cos(q2s + q3s)) * q1ps);
+        Cs53 = C10 * l3 * Mathf.Sin(q2s + q3s) * (l3 * Mathf.Cos(q2s + q3s) + l2 * Mathf.Cos(q2s)) * (ws + q1ps);
+        Cs54 = C10 * l2 * l3 * Mathf.Sin(q3s) * q2ps;
+        Cs55 = C14;
+
+        double[,] C = new double[5, 5] { { Cs11, Cs12, Cs13, Cs14, Cs15},
+                                       { Cs21, Cs22, Cs23, Cs24, Cs25},
+                                       { Cs31, Cs32, Cs33, Cs34, Cs35},
+                                       { Cs41, Cs42, Cs43, Cs44, Cs45},
+                                       { Cs51, Cs52, Cs53, Cs54, Cs55}};
+
+
+        //% f) Vector gravitacional
+        G4 = C15 * l2 * Mathf.Cos(q2s) + C16 * (l3 * Mathf.Cos(q2s + q3s) + l2 * Mathf.Cos(q2s));
+        G5 = C16 * l3 * Mathf.Cos(q2s + q3s);
+
+        double[,] G = new double[5, 1] { { 0 }, { 0 }, { 0 }, { G4 }, { G5 } };
+
+        //% g) Modelo Dinámico AKASHA(Vref = M * vp + C * v + G); vref =[uref(k) wref(k) q1pref(k) q2pref(k) q3pref(k)]';
+        //vp1 = inv(M);
+
+        // Inversa ans
+        Matrix MatM = new Matrix(M);
+        Matrix invM = MatM.Inverse();
+
+        vp11 = (float)invM[0, 0];
+        vp12 = (float)invM[0, 1];
+        vp13 = (float)invM[0, 2];
+        vp14 = (float)invM[0, 3];
+        vp15 = (float)invM[0, 4];
+
+        vp21 = (float)invM[1, 0];
+        vp22 = (float)invM[1, 1];
+        vp23 = (float)invM[1, 2];
+        vp24 = (float)invM[1, 3];
+        vp25 = (float)invM[1, 4];
+
+        vp31 = (float)invM[2, 0];
+        vp32 = (float)invM[2, 1];
+        vp33 = (float)invM[2, 2];
+        vp34 = (float)invM[2, 3];
+        vp35 = (float)invM[2, 4];
+
+        vp41 = (float)invM[3, 0];
+        vp42 = (float)invM[3, 1];
+        vp43 = (float)invM[3, 2];
+        vp44 = (float)invM[3, 3];
+        vp45 = (float)invM[3, 4];
+
+        vp51 = (float)invM[4, 0];
+        vp52 = (float)invM[4, 1];
+        vp53 = (float)invM[4, 2];
+        vp54 = (float)invM[4, 3];
+        vp55 = (float)invM[4, 4];
+
+
+        double[,] vp1 = new double[5, 5] { { vp11, vp12, vp13, vp14, vp15},
+                                         { vp21, vp22, vp23, vp24, vp25},
+                                         { vp31, vp32, vp33, vp34, vp35},
+                                         { vp41, vp42, vp43, vp44, vp45},
+                                         { vp51, vp52, vp53, vp54, vp55}};
+
+
+        //print("vp11: " + vp11 + "\n" + "vp12: " + vp12 + "\n" + "vp13: " + vp13 + "\n" + "vp14: " + vp14 + "\n" + "vp15: " + vp15 );
+        //print("vp21: " + vp21 + "\n" + "vp22: " + vp22 + "\n" + "vp23: " + vp23 + "\n" + "vp24: " + vp24 + "\n" + "vp25: " + vp25 );
+        //print("vp31: " + vp31 + "\n" + "vp32: " + vp32 + "\n" + "vp33: " + vp33 + "\n" + "vp34: " + vp34 + "\n" + "vp35: " + vp35 );
+        //print("vp41: " + vp41 + "\n" + "vp42: " + vp42 + "\n" + "vp43: " + vp43 + "\n" + "vp44: " + vp44 + "\n" + "vp45: " + vp45 );
+        //print("vp51: " + vp51 + "\n" + "vp52: " + vp52 + "\n" + "vp53: " + vp53 + "\n" + "vp54: " + vp54 + "\n" + "vp55: " + vp55 );
+        
+        //% h) Modelo para compensación dinámica
+
+        // Multiplicacion C * v
+        double[,] vp2 = new double[5, 1];
+
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 1; j++)
+            {
+                vp2[i, j] = 0;
+                for (int l = 0; l < 5; l++)
+                {
+                    vp2[i, j] += C[i, l] * v[l, j];
+                }
+            }
+        }
+
+        //print(vp2[0, 0] + "\n" + vp2[1, 0] + "\n" + vp2[2, 0] + "\n" + vp2[3, 0] + "\n" + vp2[4, 0]);
+        
+        // Resta Vref - vp2
+        double[,] Res_Vref_vp2 = new double[5, 1];
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 1; j++)
+            {
+                Res_Vref_vp2[i, j] = vref[i, j] - vp2[i, j];
+            }
+        }
+
+        // Resta Vref - vp2 - G
+        double[,] vp3 = new double[5, 1];
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 1; j++)
+            {
+                vp3[i, j] = Res_Vref_vp2[i, j] - G[i, j];
+            }
+        }
+
+        //print(vp3[0, 0] + "\n" + vp3[1, 0] + "\n" + vp3[2, 0] + "\n" + vp3[3, 0] + "\n" + vp3[4, 0]);
+
+        // Multiplicacion vp1 * vp3
+        double[,] vp = new double[5, 1];
+
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 1; j++)
+            {
+                vp[i, j] = 0;
+                for (int l = 0; l < 5; l++)
+                {
+                    vp[i, j] += vp1[i, l] * vp3[l, j] ;
+                }
+            }
+        }
+
+        //print(vp[0, 0] + "\n" + vp[1, 0] + "\n" + vp[2, 0] + "\n" + vp[3, 0] + "\n" + vp[4, 0]);
+
+        // Multiplicacion vp * ts
+        double[,] mul_vp_ts = new double[5, 1];
+
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 1; j++)
+            {
+                mul_vp_ts[i, j] = 0;
+                for (int l = 0; l < 1; l++)
+                {
+                    mul_vp_ts[i, j] += vp[i, l] * ts;
+                }
+            }
+        }
+
+        //print(mul_vp_ts[0, 0] + "\n" + mul_vp_ts[1, 0] + "\n" + mul_vp_ts[2, 0] + "\n" + mul_vp_ts[3, 0] + "\n" + mul_vp_ts[4, 0]);
+
+        // Integracion v = v +vp * ts
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 1; j++)
+            {
+                v[i, j] = v[i, j] + (float)mul_vp_ts[i, j];
+            }
+        }
+
+        //print(v[0, 0] + "\n" + v[1, 0] + "\n" + v[2, 0] + "\n" + v[3, 0] + "\n" + v[4, 0]);
+
+        us = v[0, 0];
+        ws = v[1, 0];
+        q1ps = v[2, 0];
+        q2ps = v[3, 0];
+        q3ps = v[4, 0];
+
+        // Multiplicacion v * ts
+        double[,] mul_v_ts = new double[5, 1];
+
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 1; j++)
+            {
+                mul_v_ts[i, j] = 0;
+                for (int l = 0; l < 1; l++)
+                {
+                    mul_v_ts[i, j] += v[i, l] * ts;
+                }
+            }
+        }
+
+        //print(mul_v_ts[0, 0] + "\n" + mul_v_ts[1, 0] + "\n" + mul_v_ts[2, 0] + "\n" + mul_v_ts[3, 0] + "\n" + mul_v_ts[4, 0]);
+
+        // Integracion q = q + v * ts
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 1; j++)
+            {
+                q[i, j] = q[i, j] + (float)mul_v_ts[i, j];
+            }
+        }
+
+        //print(q[0, 0] + "\n" + q[1, 0] + "\n" + q[2, 0] + "\n" + q[3, 0] + "\n" + q[4, 0]);
+
+        ths = q[1, 0];
+        q1s = q[2, 0];
+        q2s = q[3, 0];
+        q3s = q[4, 0];
+
+
+        float[,] d_1 = new float[10, 1] { { us }, { ws }, { q1ps }, { q2ps }, { q3ps }, { 0 }, { ths }, { q1s }, { q2s }, { q3s } };
+
+        return d_1;
+    }
+}
